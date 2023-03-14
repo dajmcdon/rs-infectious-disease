@@ -1,0 +1,362 @@
+---
+format: 
+  revealjs:
+    footer: "`{epiprocess}` [&]{.primary} `{epipredict}`"
+    logo: "gfx/delphi.jpg"
+    embed-resources: true
+    width: 1280
+    height: 720
+    theme: [default, themer.scss]
+    fig-format: svg
+execute: 
+  cache: true
+editor: source
+---
+
+```{r}
+#| fig-align: center
+#| fig-format: svg
+primary <- "#a8201a"
+secondary <- "#f9c80e"
+tertiary <- "#2a76dd"
+fourth_colour <- "#311847"
+library(epiprocess)
+suppressMessages(library(tidyverse))
+x <- archive_cases_dv_subset
+x_latest <- epix_as_of(x, max_version = max(x$DT$version))
+self_max = max(x$DT$version)
+versions = seq(as.Date("2020-06-01"), self_max - 1, by = "1 month")
+snapshots_all <- map_dfr(versions, function(v) { 
+  epix_as_of(x, max_version = v) %>% mutate(version = v)}) %>%
+  bind_rows(x_latest %>% mutate(version = self_max)) %>%
+  mutate(latest = version == self_max)
+snapshots <- snapshots_all %>% 
+  filter(geo_value %in% c("ca", "fl"))
+```
+
+```{r}
+#| include: false
+#| label: cover-art
+ggplot(snapshots_all %>% 
+         arrange(geo_value, version, time_value) %>% 
+         filter(!latest),
+       aes(x = time_value, y = percent_cli)) +  
+  geom_line(aes(color = factor(version), group = interaction(geo_value, version))) + 
+  geom_vline(aes(color = factor(version), xintercept = version), lty = 3) +
+  scale_x_date(minor_breaks = "month", labels = NULL) +
+  labs(x = "", y = "") + 
+  theme_void() +
+  coord_cartesian(xlim = as.Date(c("2020-10-01", NA)), ylim = c(-5, NA)) +
+  scale_color_viridis_d(option = "B", end = .8) +
+  theme(legend.position = "none") +
+  geom_line(
+    data = snapshots %>% filter(latest),
+    aes(x = time_value, y = percent_cli, group = geo_value), 
+    inherit.aes = FALSE, color = "black")
+```
+
+
+
+:::: {.columns}
+::: {.column width="20%"}
+
+:::
+::: {.column width="80%"}
+## `{epiprocess}` & `{epipredict}` {background-image="index_files/figure-revealjs/cover-art-1.svg" background-position="bottom"}
+
+### `R` packages to ramp up forecasting systems
+
+<br>
+
+#### Daniel J. McDonald, Ryan J. Tibshirani, Logan C. Brooks 
+#### and CMU's Delphi Group
+
+Forecasting Infectious Disease Incidence -- 15 March 2023
+:::
+::::
+
+## Background
+
+* Covid-19 Pandemic required quickly implementing forecasting systems.
+
+* Basic processing---[outlier detection]{.primary}, [reporting issues]{.secondary}, [geographic granularity]{.tertiary}---implemented in parallel / error prone
+
+* Data revisions complicate evaluation
+
+* Simple models often outperformed complicated ones
+
+* Custom software not easily adapted / improved by other groups
+
+* Hard for public health actors to borrow / customize community techniques
+
+
+## `{epiprocess}` 
+### Basic processing operations and data structures
+
+* Calculate rolling statistics
+* Fill / impute gaps
+* Examine correlations
+* Store revision history smartly
+* Inspect revision patterns
+* Find / correct outliers
+
+## Revision patterns
+
+```{r}
+ggplot(snapshots %>% filter(!latest),
+            aes(x = time_value, y = percent_cli)) +  
+  geom_line(aes(color = factor(version))) + 
+  geom_vline(aes(color = factor(version), xintercept = version), lty = 3) +
+  facet_wrap(~ geo_value, scales = "free_y", nrow = 1) +
+  scale_x_date(minor_breaks = "month", date_labels = "%b %Y") +
+  labs(x = "", y = "% of doctor's visits with\n Covid-like illness") + 
+  theme_bw(base_size = 24) +
+  scale_color_viridis_d(option = "B", end = .8) +
+  theme(legend.position = "none") +
+  geom_line(data = snapshots %>% filter(latest),
+               aes(x = time_value, y = percent_cli), 
+               inherit.aes = FALSE, color = "black")
+```
+
+
+## Outlier handling
+
+```{r}
+# bc <- CanCovidData::get_british_columbia_case_data()
+# bc <- bc %>%
+#   mutate(time_value = `Reported Date`) %>%
+#   count(time_value) %>%
+#   mutate(geo_value = "BC") %>%
+#   relocate(time_value, geo_value, cases = n) %>%
+#   as_epi_df()
+# saveRDS(bc, "data/bc-covid.rds")
+bc <- readRDS("data/bc-covid.rds")
+```
+
+```{r}
+ny <- jhu_csse_daily_subset %>%
+  filter(geo_value == "ny") %>%
+  select(time_value, geo_value, cases)
+```
+
+```{r}
+#| echo: true
+#| code-line-numbers: "1"
+bc <- bc %>% mutate(outliers = detect_outlr_rm(time_value, cases)) 
+ny <- ny %>% mutate(outliers = detect_outlr_stl(time_value, cases))
+```
+
+```{r}
+#| fig-align: center
+#| fig-format: svg
+ggplot(bc, aes(x = time_value)) + 
+  geom_ribbon(
+    aes(ymin = outliers$lower, ymax = outliers$upper), 
+    fill = "lightgrey") +
+  geom_line(aes(y = cases), color = primary) + 
+  theme_bw(base_size = 24) +
+  scale_y_continuous(
+    limits = c(0, NA), 
+    expand = expansion(mult = c(0, 0.05))) +
+  labs(x = "", y = "incident cases in\n British Columbia")
+```
+
+## Outlier handling
+
+```{r}
+#| echo: true
+#| code-line-numbers: "2"
+bc <- bc %>% mutate(outliers = detect_outlr_rm(time_value, cases)) 
+ny <- ny %>% mutate(outliers = detect_outlr_stl(time_value, cases))
+```
+
+
+```{r}
+#| fig-align: center
+#| fig-format: svg
+ggplot(ny, aes(x = time_value)) + 
+  geom_ribbon(
+    aes(ymin = outliers$lower / 1000, ymax = outliers$upper / 1000), 
+    fill = "lightgrey") +
+  geom_line(aes(y = cases / 1000), color = primary) + 
+  geom_point(
+    data = function(df) df %>% filter(cases != outliers$replacement),
+    aes(y = outliers$replacement / 1000), color = tertiary, size = 3) +
+  theme_bw(base_size = 24) +
+  scale_y_continuous(
+    limits = c(0, NA), 
+    expand = expansion(mult = c(0, 0.05))) +
+  labs(x = "", y = "incident cases\n in New York (1000's)")
+```
+
+## `{epipredict}` 
+### A forecasting framework
+
+* Flatline forecaster
+* AR-type models
+* Backtest using the versioned data
+* Easily create features
+* Quickly pivot to new tasks
+* Highly customizable for advanced users 
+
+## `{epipredict}`
+
+### Canned forecasters that work out of the box.
+    
+You can do a limited amount of customization. 
+
+We currently provide:
+
+- Baseline flat-line forecaster
+- Autoregressive forecaster (not an "AR" model, you don't want this)
+- Autoregressive classifier
+
+
+## Basic autoregressive forecaster
+
+* Predict `death_rate`, 1 week ahead, with `0,7,14` day lags of `cases` and `deaths`. 
+* Use `lm` for estimation. Also create "intervals".
+
+```{r}
+#| echo: true
+#| warning: false
+library(epipredict)
+jhu <- case_death_rate_subset # grab some built-in data
+canned <- arx_forecaster(
+  epi_data = jhu, 
+  outcome = "death_rate", 
+  predictors = c("case_rate", "death_rate")
+)
+```
+
+[The result is basically ready to submit to]{.primary} [COVID-19 ForecastHub]{.tertiary}
+
+## Adjust lots of built-in options
+
+```{r}
+#| echo: true
+#| eval: false
+#| code-line-numbers: "|3|5|6|7|8"
+rf <- arx_forecaster(
+  jhu, outcome = "death_rate", predictors = c("case_rate", "death_rate"),
+  trainer = parsnip::rand_forest(mode = "regression"), # use ranger
+  args_list = arx_args_list(
+    ahead = 14, # 2-week horizon
+    lags = list(c(0:4, 7, 14), c(0, 7, 14)), # bunch of lags
+    levels = c(0.01, 0.025, 1:19/20, 0.975, 0.99), # ForecastHub quantiles
+    quantile_by_key = "geo_value" # vary q-forecasts by location
+  )
+)
+```
+
+## `{epipredict}`
+
+### + Framework for customizing from modular components.
+
+1. Preprocessor: do things to the data before model training
+2. Trainer: train a model on data, resulting in an object
+3. Predictor: make predictions, using a fitted model object
+4. Postprocessor: do things to the predictions before returning
+
+. . .
+
+A very specialized plug-in to `{tidymodels}`
+
+
+## Do (almost) anything manually
+
+```{r}
+#| echo: true
+#| eval: false
+#| code-line-numbers: "1-6|8-13|15-17|19-26"
+# A preprocessing recipe which turns raw data into features / response
+r <- epi_recipe(jhu) %>%
+  step_epi_lag(case_rate, lag = c(0, 1, 2, 3, 7, 14)) %>%
+  step_epi_lag(death_rate, lag = c(0, 7, 14)) %>%
+  step_epi_ahead(death_rate, ahead = 14) %>%
+  step_epi_naomit()
+
+# A postprocessing routine describing what to do to the predictions
+f <- frosting() %>%
+  layer_predict() %>%
+  layer_threshold(.pred, lower = 0) %>%
+  # predictions/intervals should be non-negative
+  layer_add_target_date(target_date = max(jhu$time_value) + 14)
+
+# Bundle up the preprocessor, training engine, and postprocessor
+# We use quantile regression
+ewf <- epi_workflow(r, quantile_reg(tau = c(.1, .5, .9)), f)
+
+# Fit it to data (we could fit this to ANY data that has the same format)
+trained_ewf <- ewf %>% fit(jhu)
+
+# examines the recipe to determine what we need to make the prediction
+latest <- get_test_data(r, jhu)
+
+# we could make predictions using the same model on ANY test data
+preds <- trained_ewf %>% predict(new_data = latest)
+```
+
+## Packages are under active development {.smaller}
+
+[Plug:]{.primary} Ryan Tibshirani is looking for a post-doc at UC Berkeley to help
+
+### Thanks:
+
+```{r qr-codes}
+#| include: false
+#| fig-format: png
+qrdat <- function(text, ecl = c("L", "M", "Q", "H")) {
+  x <- qrcode::qr_code(text, ecl)
+  n <- nrow(x)
+  s <- seq_len(n)
+  tib <- tidyr::expand_grid(x = s, y = rev(s))
+  tib$z <- c(x)
+  tib
+}
+qr1 <- qrdat("https://cmu-delphi.github.io/epiprocess/")
+qr2 <- qrdat("https://cmu-delphi.github.io/epipredict/")
+ggplot(qr1, aes(x, y, fill = z)) +
+  geom_raster() +
+  ggtitle("{epiprocess}") +
+  coord_equal(expand = FALSE) +
+  scale_fill_manual(values = c("white", "black"), guide = "none") +
+  theme_void(base_size = 18) +
+  theme(plot.title = element_text(hjust = .5))
+ggplot(qr2, aes(x, y, fill = z)) +
+  geom_raster() +
+  labs(title = "{epipredict}") +
+  coord_equal(expand = FALSE) +
+  scale_fill_manual(values = c("white", "black"), guide = "none") +
+  theme_void(base_size = 18) +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+:::: {.columns}
+::: {.column width="50%"}
+- The whole [CMU Delphi Team](https://delphi.cmu.edu/about/team/) (across many institutions)
+- Optum/UnitedHealthcare, Change Healthcare.
+- Google, Facebook, Amazon Web Services.
+- Quidel, SafeGraph, Qualtrics.
+- Centers for Disease Control and Prevention.
+- Council of State and Territorial Epidemiologists
+:::
+
+::: {.column width="50%"}
+
+![](gfx/qr-epiprocess.png){width="300px"}
+![](gfx/qr-epipredict.png){width="300px"}
+
+:::
+
+::::
+
+::: {layout-row=1 fig-align="center"}
+![](gfx/delphi.jpg){height="100px"}
+![](gfx/berkeley.jpg){height="100px"}
+![](gfx/cmu.jpg){height="100px"}
+![](gfx/ubc.jpg){width="200px"}
+![](gfx/usc.jpg){width="200px"}
+![](gfx/stanford.jpg){width="200px"}
+:::
+
