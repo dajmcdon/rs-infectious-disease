@@ -42,13 +42,14 @@ ggplot(snapshots_all %>%
          filter(!latest),
        aes(x = time_value, y = percent_cli)) +  
   geom_line(aes(color = factor(version), group = interaction(geo_value, version))) + 
-  geom_vline(aes(color = factor(version), xintercept = version), lty = 3) +
+  #geom_vline(aes(color = factor(version), xintercept = version), lty = 3, 
+  #           size = 0.5) +
   scale_x_date(minor_breaks = "month", labels = NULL) +
   labs(x = "", y = "") + 
   theme_void() +
   coord_cartesian(xlim = as.Date(c("2020-10-01", NA)), ylim = c(-5, NA)) +
   scale_color_viridis_d(option = "B", end = .8) +
-  theme(legend.position = "none") +
+  theme(legend.position = "none", panel.background = element_blank()) +
   geom_line(
     data = snapshots %>% filter(latest),
     aes(x = time_value, y = percent_cli, group = geo_value), 
@@ -229,21 +230,23 @@ canned <- arx_forecaster(
 )
 ```
 
-[The result is basically ready to submit to]{.primary} [COVID-19 ForecastHub]{.tertiary}
+[The output is basically ready to submit to]{.primary} [COVID-19 ForecastHub](http://covid19forecasthub.org/)
 
 ## Adjust lots of built-in options
 
 ```{r}
 #| echo: true
 #| eval: false
-#| code-line-numbers: "|3|5|6|7|8"
+#| code-line-numbers: "|4|5|7|8|9|10"
 rf <- arx_forecaster(
-  jhu, outcome = "death_rate", predictors = c("case_rate", "death_rate"),
+  epi_data = jhu, 
+  outcome = "death_rate", 
+  predictors = c("case_rate", "death_rate", "fb-survey"),
   trainer = parsnip::rand_forest(mode = "regression"), # use ranger
   args_list = arx_args_list(
     ahead = 14, # 2-week horizon
-    lags = list(c(0:4, 7, 14), c(0, 7, 14)), # bunch of lags
-    levels = c(0.01, 0.025, 1:19/20, 0.975, 0.99), # ForecastHub quantiles
+    lags = list(c(0:4, 7, 14), c(0, 7, 14), c(0:7, 14)), # bunch of lags
+    levels = c(0.01, 0.025, 1:19/20, 0.975, 0.99), # 23 ForecastHub quantiles
     quantile_by_key = "geo_value" # vary q-forecasts by location
   )
 )
@@ -269,7 +272,7 @@ A very specialized plug-in to `{tidymodels}`
 #| echo: true
 #| eval: false
 #| code-line-numbers: "1-6|8-13|15-17|19-26"
-# A preprocessing recipe which turns raw data into features / response
+# A preprocessing "recipe" that turns raw data into features / response
 r <- epi_recipe(jhu) %>%
   step_epi_lag(case_rate, lag = c(0, 1, 2, 3, 7, 14)) %>%
   step_epi_lag(death_rate, lag = c(0, 7, 14)) %>%
@@ -279,9 +282,9 @@ r <- epi_recipe(jhu) %>%
 # A postprocessing routine describing what to do to the predictions
 f <- frosting() %>%
   layer_predict() %>%
-  layer_threshold(.pred, lower = 0) %>%
-  # predictions/intervals should be non-negative
-  layer_add_target_date(target_date = max(jhu$time_value) + 14)
+  layer_threshold(.pred, lower = 0) %>% # predictions/intervals should be non-negative
+  layer_add_target_date(target_date = max(jhu$time_value) + 14) %>%
+  layer_add_forecast_date(forecast_date = max(jhu$time_value))
 
 # Bundle up the preprocessor, training engine, and postprocessor
 # We use quantile regression
@@ -355,8 +358,8 @@ ggplot(qr2, aes(x, y, fill = z)) +
 ![](gfx/delphi.jpg){height="100px"}
 ![](gfx/berkeley.jpg){height="100px"}
 ![](gfx/cmu.jpg){height="100px"}
-![](gfx/ubc.jpg){width="200px"}
-![](gfx/usc.jpg){width="200px"}
-![](gfx/stanford.jpg){width="200px"}
+![](gfx/ubc.jpg){width="250px"}
+![](gfx/usc.jpg){width="250px"}
+![](gfx/stanford.jpg){width="250px"}
 :::
 
