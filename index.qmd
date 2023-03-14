@@ -1,7 +1,7 @@
 ---
 format: 
   revealjs:
-    footer: "`{epiprocess}` [&]{.primary} `{epipredict}`"
+    footer: "`{epiprocess}` [&]{.primary} `{epipredict}` --- [dajmcdon.github.io/rs-infectious-disease]{.smaller}"
     logo: "gfx/delphi.jpg"
     embed-resources: true
     width: 1280
